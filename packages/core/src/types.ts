@@ -44,15 +44,16 @@ export interface TLPageState {
   bindingId?: string | null
 }
 
-export interface TLUser<T extends TLShape> {
+export interface TLUser<T = any> {
   id: string
   color: string
   point: number[]
   selectedIds: string[]
   session?: boolean
+  metadata?: T
 }
 
-export type TLUsers<T extends TLShape, U extends TLUser<T> = TLUser<T>> = Record<string, U>
+export type TLUsers = Record<string, TLUser>
 
 export type TLSnapLine = number[][]
 
@@ -146,7 +147,7 @@ export type TLPinchEventHandler = (
     | PointerEventInit
 ) => void
 
-export type TLShapeChangeHandler<T, K = any> = (
+export type TLShapeChangeHandler<T extends TLShape, K = any> = (
   shape: { id: string } & Partial<T>,
   info?: K
 ) => void

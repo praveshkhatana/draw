@@ -17,6 +17,8 @@ export const LABEL_POINT = [0.5, 0.5]
 
 export const PI2 = Math.PI * 2
 
+export const FILE_EXTENSION = '.tldr'
+
 export const EASINGS: Record<Easing, (t: number) => number> = {
   linear: (t) => t,
   easeInQuad: (t) => t * t,
@@ -85,6 +87,8 @@ export const USER_COLORS = [
 
 export const isSafari =
   typeof Window === 'undefined' ? false : /^((?!chrome|android).)*safari/i.test(navigator.userAgent)
+
+export const isLinux = typeof Window === 'undefined' ? false : /linux/i.test(navigator.userAgent)
 
 export const IMAGE_EXTENSIONS = ['.png', '.svg', '.jpg', '.jpeg', '.gif']
 

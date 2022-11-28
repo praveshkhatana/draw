@@ -1,5 +1,6 @@
 /* eslint-disable @typescript-eslint/no-extra-semi */
 import { Vec } from '@tldraw/vec'
+import { StrokePoint } from 'perfect-freehand'
 import type React from 'react'
 import type { Patch, TLBoundsWithCenter } from '~index'
 import { Snap, SnapPoints, TLBounds, TLBoundsCorner, TLBoundsEdge } from '~types'
@@ -1332,32 +1333,70 @@ left past the initial left edge) then swap points on that axis.
     }
   }
 
-  // Regex to trim numbers to 2 decimal places
-  static TRIM_NUMBERS = /(\s?[A-Z]?,?-?[0-9]*\.[0-9]{0,2})(([0-9]|e|-)*)/g
-
   /**
    * Turn an array of points into a path of quadradic curves.
-   * @param stroke ;
+   *
+   * @param points The points returned from perfect-freehand
+   * @param closed Whether the stroke is closed
    */
   static getSvgPathFromStroke(points: number[][], closed = true): string {
-    if (!points.length) {
-      return ''
+    const len = points.length
+
+    if (len < 4) {
+      return ``
     }
 
-    const max = points.length - 1
+    let a = points[0]
+    let b = points[1]
+    const c = points[2]
 
-    return points
-      .reduce(
-        (acc, point, i, arr) => {
-          if (i === max) {
-            if (closed) acc.push('Z')
-          } else acc.push(point, Vec.med(point, arr[i + 1]))
-          return acc
-        },
-        ['M', points[0], 'Q']
-      )
-      .join(' ')
-      .replaceAll(this.TRIM_NUMBERS, '$1')
+    let result = `M${a[0].toFixed(2)},${a[1].toFixed(2)} Q${b[0].toFixed(2)},${b[1].toFixed(
+      2
+    )} ${average(b[0], c[0]).toFixed(2)},${average(b[1], c[1]).toFixed(2)} T`
+
+    for (let i = 2, max = len - 1; i < max; i++) {
+      a = points[i]
+      b = points[i + 1]
+      result += `${average(a[0], b[0]).toFixed(2)},${average(a[1], b[1]).toFixed(2)} `
+    }
+
+    if (closed) {
+      result += 'Z'
+    }
+
+    return result
+  }
+
+  /**
+   * Turn an array of stroke points into a path of quadradic curves.
+   * @param points - the stroke points returned from perfect-freehand
+   */
+  static getSvgPathFromStrokePoints(points: StrokePoint[], closed = false): string {
+    const len = points.length
+
+    if (len < 4) {
+      return ``
+    }
+
+    let a = points[0].point
+    let b = points[1].point
+    const c = points[2].point
+
+    let result = `M${a[0].toFixed(2)},${a[1].toFixed(2)} Q${b[0].toFixed(2)},${b[1].toFixed(
+      2
+    )} ${average(b[0], c[0]).toFixed(2)},${average(b[1], c[1]).toFixed(2)} T`
+
+    for (let i = 2, max = len - 1; i < max; i++) {
+      a = points[i].point
+      b = points[i + 1].point
+      result += `${average(a[0], b[0]).toFixed(2)},${average(a[1], b[1]).toFixed(2)} `
+    }
+
+    if (closed) {
+      result += 'Z'
+    }
+
+    return result
   }
 
   /* -------------------------------------------------- */
@@ -1492,3 +1531,7 @@ left past the initial left edge) then swap points on that axis.
 }
 
 export default Utils
+
+function average(a: number, b: number): number {
+  return (a + b) / 2
+}

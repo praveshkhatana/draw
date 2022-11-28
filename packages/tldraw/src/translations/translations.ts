@@ -14,12 +14,14 @@ import ne from './ne.json'
 import no from './no.json'
 import pl from './pl.json'
 import pt_br from './pt-br.json'
+import pt_pt from './pt-pt.json'
 import ru from './ru.json'
 import sv from './sv.json'
 import tr from './tr.json'
 import uk from './uk.json'
 import zh_cn from './zh-cn.json'
 import zh_tw from './zh-tw.json'
+import th from './th.json'
 
 // The default language (english) must have a value for every message.
 // Other languages may have missing messages. If the application finds
@@ -41,13 +43,15 @@ export const TRANSLATIONS: TDTranslations = [
   { locale: 'ne', label: 'नेपाली', messages: ne },
   { locale: 'no', label: 'Norwegian', messages: no },
   { locale: 'pl', label: 'Polski', messages: pl },
+  { locale: 'pt', label: 'Português - Europeu', messages: pt_pt },
   { locale: 'pt-br', label: 'Português - Brasil', messages: pt_br },
   { locale: 'ru', label: 'Russian', messages: ru },
   { locale: 'sv', label: 'Svenska', messages: sv },
   { locale: 'tr', label: 'Türkçe', messages: tr },
   { locale: 'uk', label: 'Ukrainian', messages: uk },
-  { locale: 'zh-ch', label: 'Chinese - Simplified', messages: zh_cn },
+  { locale: 'zh-ch', label: '简体中文', messages: zh_cn },
   { locale: 'zh-tw', label: '繁體中文 (台灣)', messages: zh_tw },
+  { locale: 'th', label: 'ภาษาไทย', messages: th },
 ]
 
 /* ----------------- (do not change) ---------------- */

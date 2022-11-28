@@ -8,6 +8,7 @@ import {
   TLPageState,
   TLPinchEventHandler,
   TLPointerEventHandler,
+  TLShape,
   TLShapeCloneHandler,
   TLWheelEventHandler,
   Utils,
@@ -20,7 +21,9 @@ import {
   SVG_EXPORT_PADDING,
   USER_COLORS,
   VIDEO_EXTENSIONS,
+  isLinux,
 } from '~constants'
+import { DialogState } from '~hooks'
 import { shapeUtils } from '~state/shapes'
 import { defaultStyle } from '~state/shapes/shared'
 import {
@@ -58,7 +61,6 @@ import { deepCopy } from './StateManager/copy'
 import { TLDR } from './TLDR'
 import * as Commands from './commands'
 import {
-  FileSystemHandle,
   fileToBase64,
   fileToText,
   getImageSizeFromSrc,
@@ -97,7 +99,16 @@ export interface TDCallbacks {
   /**
    * (optional) A callback to run when the user creates a new project through the menu or through a keyboard shortcut.
    */
-  onNewProject?: (app: TldrawApp, e?: KeyboardEvent) => void
+  onNewProject?: (
+    app: TldrawApp,
+    openDialog: (
+      dialogState: DialogState,
+      onYes: () => void,
+      onNo: () => void,
+      onCancel: () => void
+    ) => void,
+    e?: KeyboardEvent
+  ) => void
   /**
    * (optional) A callback to run when the user saves a project through the menu or through a keyboard shortcut.
    */
@@ -109,7 +120,16 @@ export interface TDCallbacks {
   /**
    * (optional) A callback to run when the user opens new project through the menu or through a keyboard shortcut.
    */
-  onOpenProject?: (app: TldrawApp, e?: KeyboardEvent) => void
+  onOpenProject?: (
+    app: TldrawApp,
+    openDialog: (
+      dialogState: DialogState,
+      onYes: () => void,
+      onNo: () => void,
+      onCancel: () => void
+    ) => void,
+    e?: KeyboardEvent
+  ) => void
   /**
    * (optional) A callback to run when the opens a file to upload.
    */
@@ -219,6 +239,10 @@ export class TldrawApp extends StateManager<TDSnapshot> {
   isPointing = false
 
   isForcePanning = false
+
+  isErasingWithPen = false
+
+  isPastePrevented = false
 
   editingStartTime = -1
 
@@ -388,7 +412,6 @@ export class TldrawApp extends StateManager<TDSnapshot> {
             if (visitedShapes.has(fromShape)) {
               return
             }
-
             // We only need to update the binding's "from" shape (an arrow)
             const fromDelta = TLDR.updateArrowBindings(page, fromShape)
             visitedShapes.add(fromShape)
@@ -590,6 +613,23 @@ export class TldrawApp extends StateManager<TDSnapshot> {
       })
       this.prevSelectedIds = this.selectedIds
     }
+  }
+
+  private preventPaste = () => {
+    if (this.isPastePrevented) return
+
+    const prevent = (event: ClipboardEvent) => event.stopImmediatePropagation()
+
+    const enable = () => {
+      setTimeout(() => {
+        document.removeEventListener('paste', prevent, { capture: true })
+        this.isPastePrevented = false
+      }, 50)
+    }
+
+    document.addEventListener('paste', prevent, { capture: true })
+    window.addEventListener('pointerup', enable, { once: true })
+    this.isPastePrevented = true
   }
 
   /* ----------- Managing Multiplayer State ----------- */
@@ -1268,7 +1308,13 @@ export class TldrawApp extends StateManager<TDSnapshot> {
   updateDocument = (document: TDDocument, reason = 'updated_document'): this => {
     const prevState = this.state
 
-    const nextState = { ...prevState, document: { ...prevState.document } }
+    const nextState = {
+      ...prevState,
+      document: {
+        ...prevState.document,
+        assets: document.assets,
+      },
+    }
 
     if (!document.pages[this.currentPageId]) {
       nextState.appState = {
@@ -1343,6 +1389,7 @@ export class TldrawApp extends StateManager<TDSnapshot> {
    * @param document The document to load
    */
   loadDocument = (document: TDDocument): this => {
+    this.setIsLoading(true)
     this.selectNone()
     this.resetHistory()
     this.clearSelectHistory()
@@ -1365,7 +1412,31 @@ export class TldrawApp extends StateManager<TDSnapshot> {
     this.replaceState(migrate(state, TldrawApp.version), 'loaded_document')
     const { point, zoom } = this.camera
     this.updateViewport(point, zoom)
+    this.setIsLoading(false)
     return this
+  }
+
+  /**
+   * load content from URL
+   * @param page
+   * @param pageState
+   * @returns
+   */
+  loadPageFromURL = (page: TDPage, pageState: Record<string, TLPageState>) => {
+    const pageId = page.id
+    const nextDocument = {
+      ...this.state.document,
+      pageStates: {
+        ...this.state.document.pageStates,
+        [pageId]: pageState,
+      },
+      pages: {
+        ...this.document.pages,
+        [pageId]: page,
+      },
+    }
+    this.loadDocument(nextDocument as TDDocument)
+    this.persist({})
   }
 
   // Should we move this to the app layer? onSave, onSaveAs, etc?
@@ -1384,27 +1455,22 @@ export class TldrawApp extends StateManager<TDSnapshot> {
    */
   saveProject = async () => {
     if (this.readOnly) return
-    try {
-      const fileHandle = await saveToFileSystem(
-        migrate(this.state, TldrawApp.version).document,
-        this.fileSystemHandle
-      )
-      this.fileSystemHandle = fileHandle
-      this.persist({})
-      this.isDirty = false
-    } catch (e: any) {
-      // Likely cancelled
-      console.error(e.message)
-    }
+    const fileHandle = await saveToFileSystem(
+      migrate(this.state, TldrawApp.version).document,
+      this.fileSystemHandle
+    )
+    this.fileSystemHandle = fileHandle
+    this.persist({})
+    this.isDirty = false
     return this
   }
 
   /**
    * Save the current project as a new file.
    */
-  saveProjectAs = async () => {
+  saveProjectAs = async (filename?: string) => {
     try {
-      const fileHandle = await saveToFileSystem(this.document, null)
+      const fileHandle = await saveToFileSystem(this.document, null, filename)
       this.fileSystemHandle = fileHandle
       this.persist({})
       this.isDirty = false
@@ -2059,8 +2125,8 @@ export class TldrawApp extends StateManager<TDSnapshot> {
     )
 
     // Clean up the SVG by removing any hidden elements
-    svg.setAttribute('width', commonBounds.width.toString())
-    svg.setAttribute('height', commonBounds.height.toString())
+    svg.setAttribute('width', (commonBounds.width + SVG_EXPORT_PADDING * 2).toString())
+    svg.setAttribute('height', (commonBounds.height + SVG_EXPORT_PADDING * 2).toString())
 
     // Set export background
     const exportBackground: TDExportBackground = this.settings.exportBackground
@@ -2100,7 +2166,6 @@ export class TldrawApp extends StateManager<TDSnapshot> {
   /**
    * Copy one or more shapes as SVG.
    * @param ids The ids of the shapes to copy.
-   * @param pageId The page from which to copy the shapes.
    * @returns A string containing the JSON.
    */
   copySvg = async (
@@ -2220,7 +2285,6 @@ export class TldrawApp extends StateManager<TDSnapshot> {
   /**
    * Copy one or more shapes as JSON.
    * @param ids The ids of the shapes to copy.
-   * @param pageId The page from which to copy the shapes.
    * @returns A string containing the JSON.
    */
   copyJson = (ids = this.selectedIds) => {
@@ -2792,6 +2856,7 @@ export class TldrawApp extends StateManager<TDSnapshot> {
         // We're currently creating a shape. Override the command's
         // before state so that when we undo the command, we remove
         // the shape we just created.
+
         result.before = {
           appState: {
             ...result.before.appState,
@@ -3384,7 +3449,7 @@ export class TldrawApp extends StateManager<TDSnapshot> {
           let assetId: string
 
           if (!match) {
-            assetId = Utils.uniqueId()
+            assetId = id
 
             const asset = {
               id: assetId,
@@ -3457,8 +3522,6 @@ export class TldrawApp extends StateManager<TDSnapshot> {
       const matches = svgStr.match(viewBoxRegex)
       return matches && matches.length >= 2 ? matches[1] : null
     }
-
-    console.warn('could not get viewbox from svg string')
 
     this.setIsLoading(false)
 
@@ -3667,6 +3730,9 @@ export class TldrawApp extends StateManager<TDSnapshot> {
 
     // When panning, we also want to call onPointerMove, except when "force panning" via spacebar / middle wheel button (it's called elsewhere in that case)
     if (!this.isForcePanning) this.onPointerMove(info, e as unknown as React.PointerEvent)
+
+    // prevent middle click paste on linux
+    if (isLinux && this.isForcePanning) this.preventPaste()
   }
 
   onZoom: TLWheelEventHandler = (info, e) => {
@@ -3719,6 +3785,10 @@ export class TldrawApp extends StateManager<TDSnapshot> {
     this.originPoint = this.getPagePoint(info.point).concat(info.pressure)
     this.updateInputs(info, e)
     if (this.isForcePanning) return
+    if (this.currentTool.type === TDShapeType.Draw && e.pointerType === 'pen' && e.button === 5) {
+      this.selectTool('erase')
+      this.isErasingWithPen = true
+    }
     this.currentTool.onPointerDown?.(info, e)
   }
 
@@ -3727,6 +3797,10 @@ export class TldrawApp extends StateManager<TDSnapshot> {
     if (!this.shiftKey) this.isForcePanning = false
     this.updateInputs(info, e)
     this.currentTool.onPointerUp?.(info, e)
+    if (this.isErasingWithPen && e.pointerType === 'pen' && e.button === 5) {
+      this.selectTool(TDShapeType.Draw)
+      this.isErasingWithPen = false
+    }
   }
 
   // Canvas (background)
@@ -3930,7 +4004,7 @@ export class TldrawApp extends StateManager<TDSnapshot> {
     this.currentTool.onReleaseHandle?.(info, e)
   }
 
-  onShapeChange = (shape: { id: string } & Partial<TDShape>) => {
+  onShapeChange = (shape: { id: string } & Partial<TLShape>) => {
     const pageShapes = this.document.pages[this.currentPageId].shapes
     const shapeToUpdate = { ...(pageShapes[shape.id] as any), ...shape }
     const patch = Commands.updateShapes(this, [shapeToUpdate], this.currentPageId).after

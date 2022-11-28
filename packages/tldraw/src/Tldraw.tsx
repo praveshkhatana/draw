@@ -1,4 +1,4 @@
-import { Renderer } from '@tldraw/core'
+import { CursorComponent, Renderer } from '@tldraw/core'
 import * as React from 'react'
 import { ErrorBoundary as _Errorboundary } from 'react-error-boundary'
 import { IntlProvider } from 'react-intl'
@@ -6,17 +6,21 @@ import { ContextMenu } from '~components/ContextMenu'
 import { ErrorFallback } from '~components/ErrorFallback'
 import { FocusButton } from '~components/FocusButton'
 import { Loading } from '~components/Loading'
+import { AlertDialog } from '~components/Primitives/AlertDialog'
 import { ToolsPanel } from '~components/ToolsPanel'
 import { TopPanel } from '~components/TopPanel'
 import { GRID_SIZE } from '~constants'
 import {
+  AlertDialogContext,
   ContainerContext,
+  DialogState,
   TldrawContext,
   useKeyboardShortcuts,
   useStylesheet,
   useTldrawApp,
   useTranslation,
 } from '~hooks'
+import { useCursor } from '~hooks/useCursor'
 import { TDCallbacks, TldrawApp } from '~state'
 import { TLDR } from '~state/TLDR'
 import { shapeUtils } from '~state/shapes'
@@ -55,6 +59,7 @@ export interface TldrawProps extends TDCallbacks {
    * (optional) Whether to show the multiplayer menu.
    */
   showMultiplayerMenu?: boolean
+
   /**
    * (optional) Whether to show the pages UI.
    */
@@ -97,7 +102,26 @@ export interface TldrawProps extends TDCallbacks {
    * bucket based solution will cause massive base64 string to be written to the liveblocks room.
    */
   disableAssets?: boolean
+
+  /**
+   * (optional) Custom components to override parts of the default UI.
+   */
+  components?: {
+    /**
+     * The component to render for multiplayer cursors.
+     */
+    Cursor?: CursorComponent
+  }
+
+  /**
+   * (optional) To hide cursors
+   */
+  hideCursors?: boolean
 }
+
+const isSystemDarkMode = window.matchMedia
+  ? window.matchMedia('(prefers-color-scheme: dark)').matches
+  : false
 
 export function Tldraw({
   id,
@@ -113,7 +137,8 @@ export function Tldraw({
   showUI = true,
   readOnly = false,
   disableAssets = false,
-  darkMode = false,
+  darkMode = isSystemDarkMode,
+  components,
   onMount,
   onChange,
   onChangePresence,
@@ -134,6 +159,7 @@ export function Tldraw({
   onSessionStart,
   onSessionEnd,
   onExport,
+  hideCursors,
 }: TldrawProps) {
   const [sId, setSId] = React.useState(id)
 
@@ -162,6 +188,21 @@ export function Tldraw({
     })
     return app
   })
+
+  const [onCancel, setOnCancel] = React.useState<(() => void) | null>(null)
+  const [onYes, setOnYes] = React.useState<(() => void) | null>(null)
+  const [onNo, setOnNo] = React.useState<(() => void) | null>(null)
+  const [dialogState, setDialogState] = React.useState<DialogState | null>(null)
+
+  const openDialog = React.useCallback(
+    (dialogState: DialogState, onYes: () => void, onNo: () => void, onCancel: () => void) => {
+      setDialogState(() => dialogState)
+      setOnCancel(() => onCancel)
+      setOnYes(() => onYes)
+      setOnNo(() => onNo)
+    },
+    []
+  )
 
   // Create a new app if the `id` prop changes.
   React.useLayoutEffect(() => {
@@ -297,19 +338,25 @@ export function Tldraw({
   // Use the `key` to ensure that new selector hooks are made when the id changes
   return (
     <TldrawContext.Provider value={app}>
-      <InnerTldraw
-        key={sId || 'Tldraw'}
-        id={sId}
-        autofocus={autofocus}
-        showPages={showPages}
-        showMenu={showMenu}
-        showMultiplayerMenu={showMultiplayerMenu}
-        showStyles={showStyles}
-        showZoom={showZoom}
-        showTools={showTools}
-        showUI={showUI}
-        readOnly={readOnly}
-      />
+      <AlertDialogContext.Provider
+        value={{ onYes, onCancel, onNo, dialogState, setDialogState, openDialog }}
+      >
+        <InnerTldraw
+          key={sId || 'Tldraw'}
+          id={sId}
+          autofocus={autofocus}
+          showPages={showPages}
+          showMenu={showMenu}
+          showMultiplayerMenu={showMultiplayerMenu}
+          showStyles={showStyles}
+          showZoom={showZoom}
+          showTools={showTools}
+          showUI={showUI}
+          readOnly={readOnly}
+          components={components}
+          hideCursors={hideCursors}
+        />
+      </AlertDialogContext.Provider>
     </TldrawContext.Provider>
   )
 }
@@ -325,6 +372,10 @@ interface InnerTldrawProps {
   showStyles: boolean
   showUI: boolean
   showTools: boolean
+  components?: {
+    Cursor?: CursorComponent
+  }
+  hideCursors?: boolean
 }
 
 const InnerTldraw = React.memo(function InnerTldraw({
@@ -338,9 +389,11 @@ const InnerTldraw = React.memo(function InnerTldraw({
   showTools,
   readOnly,
   showUI,
+  components,
+  hideCursors,
 }: InnerTldrawProps) {
   const app = useTldrawApp()
-
+  const [dialogContainer, setDialogContainer] = React.useState<any>(null)
   const rWrapper = React.useRef<HTMLDivElement>(null)
 
   const state = app.useStore()
@@ -436,9 +489,12 @@ const InnerTldraw = React.memo(function InnerTldraw({
     }
   }, [settings.isDarkMode])
 
+  useCursor(rWrapper)
+
   return (
     <ContainerContext.Provider value={rWrapper}>
       <IntlProvider locale={translation.locale} messages={translation.messages}>
+        <AlertDialog container={dialogContainer} />
         <StyledLayout ref={rWrapper} tabIndex={-0}>
           <Loading />
           <OneOff focusableRef={rWrapper} autofocus={autofocus} />
@@ -458,6 +514,8 @@ const InnerTldraw = React.memo(function InnerTldraw({
                 userId={room?.userId}
                 theme={theme}
                 meta={meta}
+                components={components}
+                hideCursors={hideCursors}
                 hideBounds={hideBounds}
                 hideHandles={hideHandles}
                 hideResizeHandles={isHideResizeHandlesShape}
@@ -523,7 +581,7 @@ const InnerTldraw = React.memo(function InnerTldraw({
             </ErrorBoundary>
           </ContextMenu>
           {showUI && (
-            <StyledUI>
+            <StyledUI ref={setDialogContainer}>
               {settings.isFocusMode ? (
                 <FocusButton onSelect={app.toggleFocusMode} />
               ) : (

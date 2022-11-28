@@ -1,7 +1,7 @@
-import { observer } from 'mobx-react-lite'
 import * as React from 'react'
 import { Canvas } from '~/components/Canvas'
-import type { TLShapeUtilsMap } from '~TLShapeUtil'
+import { TLShapeUtil } from '~TLShapeUtil'
+import { CursorComponent } from '~components/Cursor'
 import { TLContext, TLContextType, useTLTheme } from '~hooks'
 import { Inputs } from '~inputs'
 import type {
@@ -18,11 +18,15 @@ import type {
   TLUsers,
 } from '~types'
 
-export interface RendererProps<T extends TLShape, M = any> extends Partial<TLCallbacks<T>> {
+const EMPTY_OBJECT = Object.freeze({}) as TLAssets
+
+export type RendererProps<T extends TLShape, M = any> = Partial<TLCallbacks<T>> & {
   /**
    * An object containing instances of your shape classes.
    */
-  shapeUtils: TLShapeUtilsMap<T>
+  shapeUtils: {
+    [K in T['type']]: TLShapeUtil<any>
+  }
   /**
    * The current page, containing shapes and bindings.
    */
@@ -44,13 +48,27 @@ export interface RendererProps<T extends TLShape, M = any> extends Partial<TLCal
    */
   containerRef?: React.RefObject<HTMLElement>
   /**
+   * (optional) Custom components to override parts of the default UI.
+   */
+  components?: {
+    /**
+     * The component to render for multiplayer cursors.
+     */
+    Cursor?: CursorComponent
+  }
+
+  /**
+   * (optional) To hide cursors
+   */
+  hideCursors?: boolean
+  /**
    * (optional) An object of custom options that should be passed to rendered shapes.
    */
   meta?: M
   /**
    * (optional) The current users to render.
    */
-  users?: TLUsers<T>
+  users?: TLUsers
   /**
    * (optional) The current snap lines to render.
    */
@@ -130,10 +148,7 @@ export interface RendererProps<T extends TLShape, M = any> extends Partial<TLCal
  * @param props
  * @returns
  */
-export const Renderer = observer(function _Renderer<
-  T extends TLShape,
-  M extends Record<string, unknown>
->({
+function _Renderer<T extends TLShape, M extends Record<string, unknown>>({
   id = 'tl',
   shapeUtils,
   page,
@@ -148,6 +163,7 @@ export const Renderer = observer(function _Renderer<
   grid,
   containerRef,
   performanceMode,
+  components,
   hideHandles = false,
   hideIndicators = false,
   hideCloneHandles = false,
@@ -157,6 +173,7 @@ export const Renderer = observer(function _Renderer<
   hideBounds = false,
   hideGrid = true,
   showDashedBrush = false,
+  hideCursors,
   ...rest
 }: RendererProps<T, M>) {
   useTLTheme(theme, '#' + id)
@@ -216,10 +233,12 @@ export const Renderer = observer(function _Renderer<
         showDashedBrush={showDashedBrush}
         onBoundsChange={onBoundsChange}
         performanceMode={performanceMode}
+        components={components}
         meta={meta}
+        hideCursors={hideCursors}
       />
     </TLContext.Provider>
   )
-})
+}
 
-const EMPTY_OBJECT = {} as TLAssets
+export const Renderer = React.memo(_Renderer)

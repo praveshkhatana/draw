@@ -718,6 +718,34 @@ describe('TldrawTestApp', () => {
   })
 })
 
+describe('Arrow binding', () => {
+  it('should delete handles bindingId', () => {
+    const app = new TldrawTestApp()
+
+    app
+      .createShapes(
+        { type: TDShapeType.Rectangle, id: 'target1', point: [0, 0], size: [100, 100] },
+        { type: TDShapeType.Rectangle, id: 'target2', point: [300, 300], size: [100, 100] },
+        { type: TDShapeType.Arrow, id: 'arrow1', point: [200, 200] }
+      )
+      .select('arrow1')
+      .movePointer([200, 200])
+      .startSession(SessionType.Arrow, 'arrow1', 'start')
+      .movePointer([0, 0])
+      .completeSession()
+
+    expect(app.bindings.length).toBe(1)
+
+    app
+      .select('arrow1')
+      .movePointer([200, 200])
+      .startSession(SessionType.Arrow, 'arrow1', 'start')
+      .movePointer([1000, 1000])
+      .completeSession()
+    expect(app.bindings.length).toBe(0)
+  })
+})
+
 describe('When adding an image', () => {
   it.todo('Adds the image to the assets table')
   it.todo('Does not add the image if that image already exists as an asset')
@@ -767,5 +795,24 @@ describe('When space panning', () => {
     app.releaseKey(' ')
     app.stopPointing()
     expect(app.currentTool.status).toBe('idle')
+  })
+})
+
+describe('When using a pen eraser', () => {
+  it('switches to eraser tool when using the draw tool and back when letting go', () => {
+    const app = new TldrawTestApp()
+    app.selectTool(TDShapeType.Draw)
+    app.pressEraser()
+    expect(app.currentTool.type).toBe('erase')
+    app.releaseEraser()
+    expect(app.currentTool.type).toBe(TDShapeType.Draw)
+  })
+  it('does not switch when using other tools', () => {
+    const app = new TldrawTestApp()
+    app.selectTool('select')
+    app.pressEraser()
+    expect(app.currentTool.type).toBe('select')
+    app.releaseEraser()
+    expect(app.currentTool.type).toBe('select')
   })
 })
